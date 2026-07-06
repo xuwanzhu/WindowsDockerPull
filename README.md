@@ -1,12 +1,10 @@
 # DockerPullAuto
 
-DockerPullAuto.exe 一个是用于在Windows环境下不安装Docker也能拉取docker镜像的软件。
+DockerPullAuto.exe 一个是用于在Windows环境下没安装Docker也能拉取Docker镜像的软件。
 
 DockerPullAuto 是对原始 `DockerPull.exe` 的轻量增强版。
 
 它只新增一个能力：可以先输入 `docker login` 命令记录镜像仓库账号密码。除此之外，镜像拉取、架构选择、debug、quiet 等命令参数都保持和原始 `DockerPull.exe` 一样。
-
-原始 `DockerPull.exe` 不依赖本机 Docker Engine，也不要求 Docker Desktop 正在运行。
 
 本项目采用的原始 `DockerPull.exe` 为官方版本 `v1.2.0`。
 
