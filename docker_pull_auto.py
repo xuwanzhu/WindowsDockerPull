@@ -26,26 +26,19 @@ def bundled_dir() -> Path:
 
 
 def docker_pull_exe() -> Path:
-    bundled = bundled_dir() / "DockerPull.exe"
-    if bundled.exists():
-        return bundled
-
     sibling = app_dir() / "DockerPull.exe"
     if sibling.exists():
         return sibling
+
+    bundled = bundled_dir() / "DockerPull.exe"
+    if bundled.exists():
+        return bundled
 
     raise FileNotFoundError("找不到原始 DockerPull.exe")
 
 
 def split_command(command: str) -> list[str]:
     return shlex.split(command)
-
-
-def registry_from_image(image: str) -> str:
-    first = image.split("/", 1)[0]
-    if "." in first or ":" in first or first == "localhost":
-        return first
-    return ""
 
 
 def normalize_registry(registry: str) -> str:
@@ -98,54 +91,97 @@ def parse_login(command: str) -> LoginInfo:
     return LoginInfo(normalize_registry(registry), username, password)
 
 
-def parse_pull(command: str) -> str:
-    args = split_command(command)
-    if len(args) >= 3 and [part.lower() for part in args[:2]] == ["docker", "pull"]:
-        return args[2]
-    if len(args) == 1 and not args[0].startswith("docker"):
-        return args[0]
-    raise ValueError("请输入镜像名或 docker pull 命令")
+def strip_program_name(args: list[str]) -> list[str]:
+    if args and args[0].lower() in {"dockerpull.exe", "dockerpull", ".\\dockerpull.exe"}:
+        return args[1:]
+    return args
 
 
-def pull_with_original_tool(image: str, login: LoginInfo | None) -> bool:
-    image_registry = registry_from_image(image)
-    registry = image_registry or (login.registry if login else "")
+def has_option(args: list[str], short_name: str, long_name: str) -> bool:
+    for item in args:
+        if item == short_name or item == long_name or item.startswith(f"{long_name}="):
+            return True
+    return False
 
+
+def add_missing_login_args(args: list[str], login: LoginInfo | None) -> list[str]:
     if login is None:
-        print("还没有登录信息，请先输入 docker login 命令。")
-        return False
+        return args
+    if not has_option(args, "-i", "--image"):
+        return args
 
-    if login.registry and image_registry and normalize_registry(login.registry) != normalize_registry(image_registry):
-        print(f"当前登录仓库是 {login.registry}，拉取镜像仓库是 {image_registry}。")
-        print("如果需要切换账号，请先重新输入 docker login 命令。")
-        return False
+    result = list(args)
+    if login.registry and not has_option(result, "-r", "--custom_registry"):
+        result.extend(["-r", login.registry])
+    if not has_option(result, "-u", "--username"):
+        result.extend(["-u", login.username])
+    if not has_option(result, "-p", "--password"):
+        result.extend(["-p", login.password])
+    return result
 
-    input_text = "\n".join([image, registry, login.username, login.password, ""]) + "\n"
-    print(f"\n调用原始 DockerPull.exe 拉取: {image}")
-    process = subprocess.Popen(
-        [str(docker_pull_exe())],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    output, _ = process.communicate(input_text)
-    if output:
-        print(output, end="" if output.endswith("\n") else "\n")
-    return process.returncode == 0
+
+def hide_password(args: list[str]) -> list[str]:
+    safe_args = list(args)
+    index = 0
+    while index < len(safe_args):
+        item = safe_args[index]
+        if item in {"-p", "--password"} and index + 1 < len(safe_args):
+            safe_args[index + 1] = "******"
+            index += 2
+            continue
+        if item.startswith("--password="):
+            safe_args[index] = "--password=******"
+        index += 1
+    return safe_args
+
+
+def run_original_tool(args: list[str], login: LoginInfo | None) -> bool:
+    args = add_missing_login_args(strip_program_name(args), login)
+    shown = " ".join(shlex.quote(item) for item in hide_password(args))
+    print(f"\n调用原始 DockerPull.exe: {shown}", flush=True)
+
+    stdin_text = "\n" if args else None
+    result = subprocess.run([str(docker_pull_exe()), *args], input=stdin_text, text=True)
+    return result.returncode == 0
+
+
+def print_usage_examples() -> None:
+    print("\n使用示例:")
+    print("# 下载 Docker Hub 镜像")
+    print(" -i nginx:latest")
+    print()
+    print("# 下载指定架构镜像")
+    print(" -i alpine:latest -a arm64")
+    print()
+    print("# 下载私有仓库镜像")
+    print(" -i harbor.example.com/library/nginx:1.26.0 -u admin -p password")
+    print()
+    print("# 指定输出目录")
+    print(" -i nginx:latest -o ./downloads")
+    print()
+    print("# 静默模式下载")
+    print(" -i nginx:latest -q")
+    print()
+    print("# 下载 Quay.io 多架构镜像")
+    print(" -i quay.io/ascend/vllm-ascend:v0.11.0-a3-openeuler -a arm64")
 
 
 def main() -> int:
     os.system("")
     login: LoginInfo | None = None
 
+    if len(sys.argv) > 1:
+        ok = run_original_tool(sys.argv[1:], login)
+        input("\n按回车退出...")
+        return 0 if ok else 1
+
     print("=" * 60)
-    print("DockerPullAuto - docker login / docker pull 命令适配器")
+    print("DockerPullAuto - DockerPull.exe + docker login")
     print("=" * 60)
-    print("先输入 docker login 命令，再输入 docker pull 命令。输入 q 退出。")
-    print("示例: docker login swr.cn-south-1.myhuaweicloud.com -u username -p password")
+    print("先输入 docker login 命令记录账号密码。")
+    print("之后按 DockerPull.exe 原始参数使用，例如: -i nginx:latest -a amd64")
+    print("输入 q 退出。")
+    print_usage_examples()
 
     while True:
         try:
@@ -161,13 +197,9 @@ def main() -> int:
                 shown_registry = login.registry or "dockerhub"
                 print(f"已记录登录信息: {shown_registry} / {login.username}")
                 continue
-            if lowered.startswith("docker pull") or not lowered.startswith("docker "):
-                image = parse_pull(command)
-                ok = pull_with_original_tool(image, login)
-                print("完成。" if ok else "命令执行失败。")
-                continue
 
-            print("只支持 docker login 和 docker pull。")
+            ok = run_original_tool(split_command(command), login)
+            print("完成。" if ok else "命令执行失败。")
         except KeyboardInterrupt:
             print("\n已退出。")
             return 0
