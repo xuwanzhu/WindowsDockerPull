@@ -109,6 +109,27 @@ exit
 
 DockerPullAuto 除了额外支持 `docker login`，其他命令都应按上面的原始参数使用。
 
+## 输出文件
+
+镜像拉取成功后会生成一个 `.tar` 文件，可用于后续离线导入或分发。
+
+默认情况下，输出文件会生成在运行 `DockerPullAuto.exe` 的当前目录下。例如你在项目目录里运行程序，生成的 `.tar` 文件就会出现在该项目目录中。
+
+输出文件名通常由镜像仓库路径、镜像名和 tag 转换而来，例如：
+
+```text
+library_nginx_latest_amd64.tar
+namespace_image_tag_arm64.tar
+```
+
+如果使用的原始 `DockerPull.exe` 版本支持 `-o` 参数，也可以指定输出目录：
+
+```powershell
+-i nginx:latest -o ./downloads
+```
+
+这种情况下，生成的 `.tar` 文件会放在 `./downloads` 目录下。
+
 ## 重新打包成 exe
 
 请确保当前目录下有这些文件：
